@@ -28,7 +28,7 @@ curl -X POST http://127.0.0.1:8000/runs \
 
 Pull the image once while you have network access: `docker pull python:3.12-slim`. The test container runs without network access, as an unprivileged user, with a read-only repository mount and resource limits. It uses the packages already in the image; it does not install target-repository dependencies. This first version therefore supports simple Python `unittest` tests with the standard library, or projects whose dependencies are baked into an approved image.
 
-The API returns the plan, tool events, test output, and a Git diff. The temporary copy is deleted when the request ends. Review the diff and make the desired change yourself in the original repository.
+The API returns a `run_id`, the plan, tool events, test output, and a Git diff. Retrieve the same result later with `GET /runs/{run_id}`. The temporary copy is deleted when the request ends. Review the diff and make the desired change yourself in the original repository.
 
 ## Architecture
 
@@ -37,12 +37,14 @@ The API returns the plan, tool events, test output, and a Git diff. The temporar
 3. `app/ai.py` sends the planner and coder prompts to the model.
 4. `app/workflow.py` copies the repository, makes a starting Git snapshot, coordinates the planner/coder/fixer loop, and records events.
 5. `app/executor.py` runs one allowlisted test command in Docker and returns exit code, stdout, and stderr.
+6. `app/run_store.py` assigns a UUID to each completed run and keeps its result in server memory for `GET /runs/{run_id}`.
 
 Run local checks with `python -m pytest -q`. The workflow test substitutes a deterministic model and test result so it can verify the retry logic without an API key or Docker.
 
 ## Current limits
 
 - Requests run synchronously; large jobs need a background queue later.
+- Run history is in memory. It disappears when the server restarts and is not shared across multiple server processes.
 - The model can replace text in existing files only; file creation and deletion come later.
 - The run sees up to 200 files, reads up to five small files, and retries at most three times.
 - Docker isolation here is a learning baseline. Do not run untrusted public repositories until you have stronger isolation, dependency handling, and authorization controls.

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.executor import ALLOWED_COMMANDS, ALLOWED_IMAGES
 from app.repository import git_diff, list_files, read_file, search_code
+from app.run_store import get_run, save_run
 from app.workflow import run_job
 from pathlib import Path
 from typing import Optional
@@ -52,9 +53,18 @@ def runs(body: RunRequest) -> dict:
     if body.docker_image not in ALLOWED_IMAGES:
         raise HTTPException(400, "Unsupported Docker image")
     try:
-        return run_job(body.repo_path, body.request, body.test_command,
-                       body.docker_image, body.max_attempts)
+        result = run_job(body.repo_path, body.request, body.test_command,
+                         body.docker_image, body.max_attempts)
+        return save_run(result)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/runs/{run_id}")
+def read_run(run_id: str) -> dict:
+    result = get_run(run_id)
+    if result is None:
+        raise HTTPException(404, "Run not found")
+    return result

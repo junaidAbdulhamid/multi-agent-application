@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.repository import read_file, replace_once, safe_path
+from app.run_store import get_run
 
 
 def test_repository_path_stays_inside_root(tmp_path: Path):
@@ -32,7 +33,8 @@ def test_run_loop_repairs_failure_without_editing_source(monkeypatch, tmp_path: 
     monkeypatch.setattr("app.workflow.run_tests", lambda *args: {
         "command": "python -m unittest discover -v", "exit_code": next(calls),
         "stdout": "failed then passed", "stderr": ""})
-    response = TestClient(app).post("/runs", json={
+    client = TestClient(app)
+    response = client.post("/runs", json={
         "repo_path": str(tmp_path), "request": "Make addition work"})
     assert response.status_code == 200
     body = response.json()
@@ -40,3 +42,18 @@ def test_run_loop_repairs_failure_without_editing_source(monkeypatch, tmp_path: 
     assert len([event for event in body["events"] if event.get("tool") == "docker_tests"]) == 2
     assert "+return a + b" in body["diff"]
     assert (tmp_path / "calculator.py").read_text() == "return a - b\n"
+    assert client.get(f"/runs/{body['run_id']}").json() == body
+
+
+def test_unknown_run_returns_404():
+    response = TestClient(app).get("/runs/does-not-exist")
+    assert response.status_code == 404
+
+
+def test_reading_a_run_cannot_change_stored_result():
+    from app.run_store import save_run
+
+    saved = save_run({"status": "passed", "events": []})
+    first_read = get_run(saved["run_id"])
+    first_read["events"].append({"tool": "fake"})
+    assert get_run(saved["run_id"])["events"] == []
